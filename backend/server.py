@@ -394,16 +394,16 @@ from werkzeug.utils import secure_filename
 import logging
 from datetime import datetime
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
+
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'.mp3', '.wav', '.ogg', '.m4a', '.mp4', '.avi', '.mov', '.mkv', '.webm', '.aac'}
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  
 
-# Ensure uploads directory exists
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
@@ -427,22 +427,22 @@ def convert_to_wav(input_path):
         output_filename = f"converted_{os.path.splitext(os.path.basename(input_path))[0]}.wav"
         output_path = os.path.join(UPLOAD_FOLDER, output_filename)
         
-        # Get input file information
+
         probe = ffmpeg.probe(input_path)
         audio_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
         
         if not audio_stream:
             raise ValueError("No audio stream found in the file")
 
-        # Configure conversion
+   
         stream = (
             ffmpeg
             .input(input_path)
             .output(output_path,
-                   acodec='pcm_s16le',  # Linear PCM 16-bit
-                   ac=1,                # Mono
-                   ar='16k',            # 16kHz sample rate
-                   loglevel='error')    # Reduce ffmpeg output
+                   acodec='pcm_s16le',  
+                   ac=1,                
+                   ar='16k',            
+                   loglevel='error')   
             .overwrite_output()
         )
         
@@ -461,17 +461,17 @@ def transcribe_audio(audio_path):
     recognizer = sr.Recognizer()
     try:
         with sr.AudioFile(audio_path) as source:
-            # Configure recognition parameters
+ 
             recognizer.dynamic_energy_threshold = True
             recognizer.energy_threshold = 300
             
-            # Adjust for ambient noise
+
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
             
-            # Record audio with timeout
+
             audio = recognizer.record(source)
             
-            # Perform transcription with language detection
+  
             return recognizer.recognize_google(audio, show_all=False)
             
     except sr.UnknownValueError:
@@ -488,7 +488,7 @@ def transcribe_audio(audio_path):
 def upload_file():
     """Handle file upload and transcription."""
     try:
-        # Check if file was included in request
+
         if 'file' not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
 
@@ -496,21 +496,21 @@ def upload_file():
         if file.filename == '':
             return jsonify({"error": "Empty filename"}), 400
 
-        # Validate file type
+       
         if not is_allowed_file(file.filename):
             return jsonify({"error": "File type not supported"}), 400
 
-        # Save file with unique name
+       
         filename = get_unique_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         logger.info(f"File saved: {filename}")
 
         try:
-            # Convert to WAV if needed
+            
             if not file_path.lower().endswith('.wav'):
                 wav_path = convert_to_wav(file_path)
-                os.remove(file_path)  # Remove original file
+                os.remove(file_path) 
                 file_path = wav_path
 
             # Perform transcription
@@ -528,7 +528,7 @@ def upload_file():
             return jsonify({"error": "Failed to process audio"}), 500
         
         finally:
-            # Clean up files
+          
             if os.path.exists(file_path):
                 os.remove(file_path)
 
