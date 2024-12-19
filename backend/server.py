@@ -385,22 +385,164 @@ def get_mcq_hard():
     )
     return jsonify({"output": output})
 
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import speech_recognition as sr
+import os
+import ffmpeg
+from werkzeug.utils import secure_filename
+import logging
+from datetime import datetime
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Configuration
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'.mp3', '.wav', '.ogg', '.m4a', '.mp4', '.avi', '.mov', '.mkv', '.webm', '.aac'}
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+
+# Ensure uploads directory exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+app = Flask(__name__)
+CORS(app)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+def get_unique_filename(original_filename):
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    secure_name = secure_filename(original_filename)
+    base, ext = os.path.splitext(secure_name)
+    return f"{base}_{timestamp}{ext}"
+
+def is_allowed_file(filename):
+
+    return os.path.splitext(filename.lower())[1] in ALLOWED_EXTENSIONS
+
+def convert_to_wav(input_path):
+    """Convert any audio/video file to WAV format suitable for speech recognition."""
+    try:
+        output_filename = f"converted_{os.path.splitext(os.path.basename(input_path))[0]}.wav"
+        output_path = os.path.join(UPLOAD_FOLDER, output_filename)
+        
+        # Get input file information
+        probe = ffmpeg.probe(input_path)
+        audio_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
+        
+        if not audio_stream:
+            raise ValueError("No audio stream found in the file")
+
+        # Configure conversion
+        stream = (
+            ffmpeg
+            .input(input_path)
+            .output(output_path,
+                   acodec='pcm_s16le',  # Linear PCM 16-bit
+                   ac=1,                # Mono
+                   ar='16k',            # 16kHz sample rate
+                   loglevel='error')    # Reduce ffmpeg output
+            .overwrite_output()
+        )
+        
+        stream.run(capture_stdout=True, capture_stderr=True)
+        return output_path
+    
+    except ffmpeg.Error as e:
+        logger.error(f"FFmpeg Error: {e.stderr.decode() if e.stderr else str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Conversion error: {str(e)}")
+        raise
+
+def transcribe_audio(audio_path):
+    """Transcribe audio from a WAV file using Google Speech Recognition."""
+    recognizer = sr.Recognizer()
+    try:
+        with sr.AudioFile(audio_path) as source:
+            # Configure recognition parameters
+            recognizer.dynamic_energy_threshold = True
+            recognizer.energy_threshold = 300
+            
+            # Adjust for ambient noise
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            
+            # Record audio with timeout
+            audio = recognizer.record(source)
+            
+            # Perform transcription with language detection
+            return recognizer.recognize_google(audio, show_all=False)
+            
+    except sr.UnknownValueError:
+        logger.warning(f"Could not understand audio in file: {audio_path}")
+        raise ValueError("Speech could not be recognized in the audio")
+    except sr.RequestError as e:
+        logger.error(f"Google Speech Recognition service error: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Transcription error: {str(e)}")
+        raise
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
+    """Handle file upload and transcription."""
+    try:
+        # Check if file was included in request
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
 
-    file = request.files['file']
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "Empty filename"}), 400
 
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+        # Validate file type
+        if not is_allowed_file(file.filename):
+            return jsonify({"error": "File type not supported"}), 400
 
-    content = file_processor.process_file(file)
-    
-    if content:
-        return jsonify({"content": content})
-    else:
-        return jsonify({"error": "Unsupported file type or error processing file"}), 400
+        # Save file with unique name
+        filename = get_unique_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        logger.info(f"File saved: {filename}")
+
+        try:
+            # Convert to WAV if needed
+            if not file_path.lower().endswith('.wav'):
+                wav_path = convert_to_wav(file_path)
+                os.remove(file_path)  # Remove original file
+                file_path = wav_path
+
+            # Perform transcription
+            transcription = transcribe_audio(file_path)
+            
+            return jsonify({
+                "success": True,
+                "transcription": transcription
+            })
+
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            logger.error(f"Processing error: {str(e)}")
+            return jsonify({"error": "Failed to process audio"}), 500
+        
+        finally:
+            # Clean up files
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+    except Exception as e:
+        logger.error(f"Upload error: {str(e)}")
+        return jsonify({"error": "Server error"}), 500
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Handle file size exceeding MAX_CONTENT_LENGTH."""
+    return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
+
+if __name__ == '__main__':
+    app.run(debug=True)
 
 @app.route("/", methods=["GET"])
 def hello():
