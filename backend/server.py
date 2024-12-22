@@ -2,7 +2,14 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pprint import pprint
 import nltk
-
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import speech_recognition as sr
+import os
+import ffmpeg
+from werkzeug.utils import secure_filename
+import logging
+from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 nltk.download("stopwords")
@@ -385,14 +392,6 @@ def get_mcq_hard():
     )
     return jsonify({"output": output})
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import speech_recognition as sr
-import os
-import ffmpeg
-from werkzeug.utils import secure_filename
-import logging
-from datetime import datetime
 
 
 logging.basicConfig(level=logging.INFO)
@@ -540,9 +539,6 @@ def upload_file():
 def request_entity_too_large(error):
     """Handle file size exceeding MAX_CONTENT_LENGTH."""
     return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
-
-if __name__ == '__main__':
-    app.run(debug=True)
 
 @app.route("/", methods=["GET"])
 def hello():
