@@ -400,7 +400,7 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'.mp3', '.wav', '.ogg', '.m4a', '.mp4', '.avi', '.mov', '.mkv', '.webm', '.aac'}
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024  
+MAX_CONTENT_LENGTH = 50 * 1024 * 1024  
 
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
